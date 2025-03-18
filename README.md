@@ -56,6 +56,13 @@ git clone https://github.com/zhaorw02/DeepMesh.git && cd DeepMesh
 conda env create -f environment.yaml
 conda activate deepmesh
 ```
+2. Install the pretrained model weight
+```
+pip install -U "huggingface_hub[cli]"
+huggingface-cli login
+HF_TOKEN_REMOVED
+huggingface-cli download zrw/DeepMesh --local-dir ./
+```
 
 ## Usage
 ### Command line inference
