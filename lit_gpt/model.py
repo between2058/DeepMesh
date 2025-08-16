@@ -102,7 +102,7 @@ class Hourglass(torch.nn.Module):
                 mask: Optional[torch.Tensor] = None,
                 input_pos: Optional[torch.Tensor] = None,
                 kv_cache: Optional[KVCache] = None):
-        # import pdb;pdb.set_trace()
+     
         T = x.size(1)  # the length of the sequence
         cos, sin = self.rope_cache
         cos      = cos[start:start+T].to(x.device)
@@ -113,10 +113,7 @@ class Hourglass(torch.nn.Module):
             # Pre-Vanilla Transformer Layer
             x, _ = self.pre_layer[i](x, (cos, sin),  max_seq_length=max_seq_length, pc=pc, mask=mask)  
         if self.hourglass is not None:
-            # Shift the sequence to the right by k-1 positions so that the information does not leak
-            # x_hourglass = self.shiftRight(x)
-            # x_hourglass = self.linearPooling(x_hourglass)
-            # rope_k = self.ropePooling(rope)
+            
             x = pad_to_multiple(x, self.k, dim=-2)
             if exists(mask):
                 padded_mask = pad_to_multiple(mask, self.k, dim=-1, value=False)
@@ -160,7 +157,6 @@ class GPT(nn.Module):
         self.transformer = nn.ModuleDict(
             dict(
                 wte=nn.Embedding(config.padded_vocab_size, config.n_embd),
-                # h=nn.ModuleList(Block(config) for _ in range(config.n_layer)),
                 h = Hourglass(config, config.padded_vocab_size, config.n_head, config.n_embd, config.block_size, self.factors),
                 ln_f=config.norm_class(config.n_embd, eps=config.norm_eps),
             )
@@ -234,14 +230,9 @@ class GPT(nn.Module):
         # this will be resolved by https://github.com/pytorch/pytorch/issues/96099
         if use_kv_cache and self.mask_cache is None:
             self.mask_cache = self.build_mask_cache(idx)
-
-        # cos, sin = self.rope_cache
-        # cos      = cos.to(idx.device)
-        # sin      = sin.to(idx.device)
         
         if use_kv_cache:
-            # cos = cos.index_select(0, input_pos)
-            # sin = sin.index_select(0, input_pos)
+          
             mask = self.mask_cache.index_select(2, input_pos)
             mask = mask[:, :, :, :max_seq_length]
         else:
@@ -252,8 +243,6 @@ class GPT(nn.Module):
                 # build casual mask
                 ones = torch.ones((T, T), device=idx.device, dtype=torch.bool)
                 mask = torch.tril(ones).unsqueeze(0).unsqueeze(0)
-                # mask = torch.tril(ones).unsqueeze(0).repeat(B, 1, 1)
-                # mask = None
 
         # forward the model itself
         x = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
@@ -265,13 +254,6 @@ class GPT(nn.Module):
         else:
             cond_embeds = None
             
-        # if not use_kv_cache:
-        #     for block in self.transformer.h:
-        #         x, *_ = block(x, (cos, sin),  max_seq_length, cond_embeds,mask)
-        # else:
-        #     self.kv_caches = self.kv_caches or self.build_kv_caches(x, max_seq_length, cos.size(-1) * 2)
-        #     for i, block in enumerate(self.transformer.h):
-        #         x, self.kv_caches[i] = block(x, (cos, sin),  max_seq_length, cond_embeds, mask, input_pos, self.kv_caches[i])
         x = self.transformer.h(x, max_seq_length, start=start, pc=cond_embeds, mask=mask)
 
         x = self.transformer.ln_f(x)
@@ -397,22 +379,10 @@ class CausalSelfAttention(nn.Module):
         # split batched computation into three
         q, k, v = qkv.split((q_per_kv, 1, 1), dim=-2)
 
-        # repeat k and v if necessary
-        # Peiyuan: we do not need to do this as flash attention 2 already support GQA
-        # if self.config.n_query_groups != 1:  # doing this would require a full kv cache with MQA (inefficient!)
-        #     # for MHA this is a no-op
-        #     k = k.expand(B, self.config.n_query_groups, q_per_kv, T, self.config.head_size)
-        #     v = v.expand(B, self.config.n_query_groups, q_per_kv, T, self.config.head_size)
 
         q = q.reshape(B,  T, -1, self.config.head_size)  # (B, T, nh_q, hs)
         k = k.reshape(B,  T, -1, self.config.head_size)  
         v = v.reshape(B,  T, -1, self.config.head_size)  
-
-        # rope = build_rope_cache(seq_len=T,
-        #     n_elem=int(self.config.rotary_percentage * self.config.head_size),
-        #     dtype=torch.bfloat16,
-        #     device=x.device,
-        #     condense_ratio=self.config.condense_ratio,)
         
         cos, sin = rope
 
@@ -421,14 +391,6 @@ class CausalSelfAttention(nn.Module):
         q = apply_rotary_emb_func(q, cos, sin, False, True)
         k = apply_rotary_emb_func(k, cos, sin, False, True)
         
-        # n_elem = int(self.config.rotary_percentage * self.config.head_size)
-    
-        # q_roped = apply_rope(q[..., :n_elem], cos.repeat(1,2), sin.repeat(1,2))
-        # k_roped = apply_rope(k[..., :n_elem], cos.repeat(1,2), sin.repeat(1,2))
-        # print( (q_roped - q).sum())
-        # q = torch.cat((q_roped, q[..., n_elem:]), dim=-1)
-        # k = torch.cat((k_roped, k[..., n_elem:]), dim=-1)
-
         if kv_cache is not None:
             cache_k, cache_v = kv_cache
             cache_k, cache_v = cache_k.to(dtype=k.dtype), cache_v.to(dtype=v.dtype)
