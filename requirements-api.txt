@@ -1,0 +1,38 @@
+# =============================================================================
+# DeepMesh API — Python dependencies
+#
+# The following packages are intentionally NOT listed here and are instead
+# installed directly in the Dockerfile (version-pinning or source build
+# required for CUDA compatibility):
+#
+#   torch / torchvision / torchaudio  — Step 1 (PyTorch cu128 index)
+#   flash-attn                        — Step 4 (built from source for sm_120)
+#   xformers                          — Step 5 (built from source for sm_120)
+#   rotary-emb                        — Step 6 (CUDA extension, built from source)
+#   dropout-layer-norm                — Step 7 (CUDA extension, built from source)
+# =============================================================================
+
+# -- Web framework -------------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# -- Machine learning / transformers ------------------------------------------
+transformers==4.31.0
+accelerate==1.2.1
+huggingface_hub
+safetensors==0.4.5
+einops==0.6.1
+lightning-utilities==0.11.9
+
+# -- 3D geometry processing ----------------------------------------------------
+trimesh==4.5.3
+open3d==0.19.0
+scikit-image==0.24.0
+numpy<2.0
+
+# -- Config & utilities --------------------------------------------------------
+omegaconf==2.3.0
+pyyaml
+beartype==0.19.0
+scipy>=1.13.0

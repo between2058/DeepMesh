@@ -1,0 +1,73 @@
+version: "3.8"
+
+# =============================================================================
+# DeepMesh API — Docker Compose
+#
+# Machine-specific config lives in .env (gitignored).
+# Copy .env.example -> .env and set paths before first run.
+#
+# Quick start:
+#   cp .env.example .env
+#   $EDITOR .env
+#   docker compose up -d
+#
+# Rebuild after code changes:
+#   docker compose up -d --build
+#
+# Logs:
+#   docker compose logs -f deepmesh
+#   tail -f logs/app.log
+#
+# Check GPU inside container:
+#   docker compose exec deepmesh nvidia-smi
+# =============================================================================
+
+services:
+  deepmesh:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TORCH_CUDA_ARCH_LIST: "${TORCH_CUDA_ARCH_LIST:-8.0;8.6;8.9;9.0;10.0;12.0}"
+        MAX_JOBS: "${MAX_JOBS:-4}"
+        http_proxy: "${HTTP_PROXY:-}"
+        https_proxy: "${HTTPS_PROXY:-}"
+        no_proxy: "localhost,127.0.0.1"
+
+    image: deepmesh:latest
+    container_name: deepmesh-api
+
+    ports:
+      - "${DEEPMESH_PORT:-8193}:8193"
+
+    volumes:
+      # -- Model weights (host path containing pytorch_model.bin or .safetensors)
+      - ${DEEPMESH_WEIGHTS_PATH:-./weights}:/app/weights:ro
+
+      # -- HuggingFace model cache (for Michelangelo encoder auto-download) -----
+      - ${HF_CACHE_PATH:-./hf_cache}:/hf_cache:rw
+
+      # -- Log persistence ----------------------------------------------------
+      - ./logs:/app/logs
+
+      # -- Generated outputs --------------------------------------------------
+      - ${DEEPMESH_OUTPUT_PATH:-./outputs}:/app/outputs:rw
+
+    environment:
+      - HF_HOME=/hf_cache
+      - TRANSFORMERS_CACHE=/hf_cache
+      - HUGGINGFACE_HUB_CACHE=/hf_cache
+      - DEEPMESH_MODEL_PATH=${DEEPMESH_MODEL_PATH:-/app/weights/pytorch_model.bin}
+      - DEEPMESH_MODEL_ID=${DEEPMESH_MODEL_ID:-551}
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${GPU_ID:-0}"]
+              capabilities: [gpu]
+
+    shm_size: "16gb"
+
+    restart: unless-stopped
