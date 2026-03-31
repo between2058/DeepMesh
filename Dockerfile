@@ -112,13 +112,30 @@ RUN pip install --no-cache-dir --force-reinstall \
  && pip install --no-cache-dir "numpy<2.0"
 
 # =============================================================================
-# STEP 4 — flash-attn (built from source against finalised torch)
+# STEP 4 — Clone flash-attention source
 #
-# Required by DeepMesh's CausalSelfAttention (flash_attn_func).
-# MAX_JOBS=4 to prevent OOM during compilation.
+# flash-attn, rotary-emb, and dropout-layer-norm are all built from
+# the flash-attention repository. rotary-emb and dropout-layer-norm
+# are NOT on PyPI — they live in csrc/ and must be compiled locally.
 # =============================================================================
-RUN MAX_JOBS=4 pip install --no-cache-dir --no-build-isolation \
-    flash-attn
+RUN git clone --depth 1 https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attention
+
+# -- 4a: flash-attn main package ----------------------------------------------
+RUN cd /tmp/flash-attention \
+ && MAX_JOBS=4 pip install --no-cache-dir --no-build-isolation .
+
+# -- 4b: rotary-emb (csrc/rotary) ---------------------------------------------
+#    Required by lit_gpt/fused_rotary_embedding.py
+RUN cd /tmp/flash-attention/csrc/rotary \
+ && pip install --no-cache-dir --no-build-isolation .
+
+# -- 4c: dropout-layer-norm (csrc/layer_norm) ----------------------------------
+#    Required by lit_gpt/rmsnorm.py (FusedRMSNorm)
+RUN cd /tmp/flash-attention/csrc/layer_norm \
+ && pip install --no-cache-dir --no-build-isolation .
+
+# -- 4d: cleanup source -------------------------------------------------------
+RUN rm -rf /tmp/flash-attention
 
 # =============================================================================
 # STEP 5 — xformers (built from source for sm_120)
@@ -129,23 +146,7 @@ RUN pip install --no-cache-dir --no-build-isolation \
     xformers
 
 # =============================================================================
-# STEP 6 — rotary-emb (CUDA extension for rotary positional embeddings)
-#
-# Required by lit_gpt/fused_rotary_embedding.py.
-# =============================================================================
-RUN pip install --no-cache-dir --no-build-isolation \
-    rotary-emb
-
-# =============================================================================
-# STEP 7 — dropout-layer-norm (CUDA extension for FusedRMSNorm)
-#
-# Required by lit_gpt/rmsnorm.py.
-# =============================================================================
-RUN pip install --no-cache-dir --no-build-isolation \
-    dropout-layer-norm
-
-# =============================================================================
-# STEP 8 — triton (for fused kernels)
+# STEP 6 — triton (for fused kernels)
 # =============================================================================
 RUN pip install --no-cache-dir triton
 
