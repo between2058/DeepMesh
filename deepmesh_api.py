@@ -210,7 +210,55 @@ def ar_sample_kvcache(gpt, prompt, pc, temperature=0.5,
 
 
 # =============================================================================
-# Model Loading (Lazy)
+# Model Weight Download (auto-download from HuggingFace if not present)
+# =============================================================================
+
+HF_REPO_ID = os.environ.get("DEEPMESH_HF_REPO", "zzzrw/DeepMesh")
+
+
+def ensure_weights_downloaded() -> str:
+    """Return local path to model weights, downloading from HuggingFace if needed."""
+    model_path = MODEL_PATH
+
+    if os.path.isfile(model_path):
+        logger.info(f"Model weights found at {model_path}")
+        return model_path
+
+    # Try common weight file names in the weights directory
+    weights_dir = os.path.dirname(model_path)
+    if os.path.isdir(weights_dir):
+        for name in ("pytorch_model.bin", "model.safetensors"):
+            candidate = os.path.join(weights_dir, name)
+            if os.path.isfile(candidate):
+                logger.info(f"Model weights found at {candidate}")
+                return candidate
+
+    # Auto-download from HuggingFace
+    logger.info(f"Model weights not found locally. Downloading from HuggingFace: {HF_REPO_ID} ...")
+    from huggingface_hub import snapshot_download
+
+    local_dir = snapshot_download(
+        repo_id=HF_REPO_ID,
+        local_dir=weights_dir,
+        local_dir_use_symlinks=False,
+    )
+    logger.info(f"Downloaded model repo to {local_dir}")
+
+    # Find the weight file in downloaded files
+    for name in ("pytorch_model.bin", "model.safetensors"):
+        candidate = os.path.join(local_dir, name)
+        if os.path.isfile(candidate):
+            return candidate
+
+    # If still not found, raise error with listing
+    files = os.listdir(local_dir) if os.path.isdir(local_dir) else []
+    raise FileNotFoundError(
+        f"No pytorch_model.bin or model.safetensors in {local_dir}. Files: {files}"
+    )
+
+
+# =============================================================================
+# Model Loading (Lazy — auto-downloads weights on first request)
 # =============================================================================
 
 def ensure_model_loaded():
@@ -234,7 +282,9 @@ def ensure_model_loaded():
 
         loaded_model = GPTCache(config).to(DEVICE)
 
-        model_path = MODEL_PATH
+        model_path = ensure_weights_downloaded()
+        logger.info(f"Loading weights from {model_path}")
+
         if model_path.endswith(".safetensors"):
             state_dict = load_file(model_path)
         else:
