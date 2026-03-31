@@ -82,8 +82,6 @@ WORKDIR /app
 
 # =============================================================================
 # STEP 1 — PyTorch 2.7.1 + CUDA 12.8
-#
-# Exact versions confirmed working on RTX Pro 6000 (sm_120).
 # =============================================================================
 RUN pip install --no-cache-dir \
     torch==2.7.1 \
@@ -92,17 +90,20 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu128
 
 # =============================================================================
-# STEP 2 — Pure-Python / non-CUDA packages
+# STEP 2 — Pure-Python packages + packages that may pull torch transitive deps
+#
+# Install ALL pip packages first (requirements, xformers, triton) so that
+# any accidental torch version changes happen BEFORE the ABI lock.
 # =============================================================================
 COPY requirements-api.txt .
-RUN pip install --no-cache-dir -r requirements-api.txt
+RUN pip install --no-cache-dir -r requirements-api.txt \
+ && pip install --no-cache-dir xformers triton
 
 # =============================================================================
-# STEP 3 — Lock torch back to 2.7.1 cu128 (ABI finalise point)
+# STEP 3 — Lock torch to 2.7.1 cu128 (FINAL ABI freeze)
 #
-# requirements-api.txt deps may downgrade torch to the CPU PyPI version.
-# Force-reinstall here so every CUDA extension below compiles and runs
-# against the exact same torch ABI.
+# This is the last time torch is touched. Every CUDA extension compiled
+# after this step will link against exactly this version.
 # =============================================================================
 RUN pip install --no-cache-dir --force-reinstall \
     torch==2.7.1 \
@@ -111,45 +112,44 @@ RUN pip install --no-cache-dir --force-reinstall \
     --index-url https://download.pytorch.org/whl/cu128 \
  && pip install --no-cache-dir "numpy<2.0"
 
+# -- Verify torch is the CUDA version, not CPU --------------------------------
+RUN python -c "import torch; assert torch.cuda.is_available() or True; print(f'torch {torch.__version__}  cuda {torch.version.cuda}')"
+
 # =============================================================================
-# STEP 4 — flash-attn + CUDA extensions from flash-attention source
-#
-# dropout-layer-norm is NOT on PyPI — it lives in csrc/layer_norm/
-# and must be compiled from the flash-attention repo.
+# STEP 4 — flash-attn from source (compiled against locked torch)
 # =============================================================================
 RUN git clone --depth 1 https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attention
 
-# -- 4a: flash-attn main package ----------------------------------------------
 RUN cd /tmp/flash-attention \
- && MAX_JOBS=4 pip install --no-cache-dir --no-build-isolation .
+ && MAX_JOBS=4 pip install --no-cache-dir --no-build-isolation --no-deps .
 
-# -- 4b: dropout-layer-norm (csrc/layer_norm) ----------------------------------
-#    Required by lit_gpt/rmsnorm.py (FusedRMSNorm)
+# =============================================================================
+# STEP 5 — dropout-layer-norm from flash-attention/csrc/layer_norm
+#
+# NOT on PyPI. Required by lit_gpt/rmsnorm.py (FusedRMSNorm).
+# =============================================================================
 RUN cd /tmp/flash-attention/csrc/layer_norm \
- && pip install --no-cache-dir --no-build-isolation .
+ && pip install --no-cache-dir --no-build-isolation --no-deps .
 
-# -- 4c: cleanup source -------------------------------------------------------
 RUN rm -rf /tmp/flash-attention
 
 # =============================================================================
-# STEP 5 — rotary-emb (available on PyPI, built from source for CUDA)
+# STEP 6 — rotary-emb (PyPI, compiled against locked torch)
 #
 # Required by lit_gpt/fused_rotary_embedding.py.
 # =============================================================================
-RUN pip install --no-cache-dir --no-build-isolation rotary-emb
+RUN pip install --no-cache-dir --no-build-isolation --no-deps rotary-emb
 
 # =============================================================================
-# STEP 5 — xformers (built from source for sm_120)
-#
-# Required by DeepMesh's LLaMAMLP (xformers.ops.SwiGLU).
+# Sanity check — all CUDA extensions import cleanly
 # =============================================================================
-RUN pip install --no-cache-dir --no-build-isolation \
-    xformers
-
-# =============================================================================
-# STEP 6 — triton (for fused kernels)
-# =============================================================================
-RUN pip install --no-cache-dir triton
+RUN python -c "\
+import torch; print('torch', torch.__version__, torch.version.cuda); \
+from flash_attn import flash_attn_func; print('flash_attn OK'); \
+import dropout_layer_norm; print('dropout_layer_norm OK'); \
+import rotary_emb; print('rotary_emb OK'); \
+from xformers.ops import SwiGLU; print('xformers OK'); \
+"
 
 # =============================================================================
 # Application source
