@@ -97,7 +97,8 @@ RUN pip install --no-cache-dir \
 # =============================================================================
 COPY requirements-api.txt .
 RUN pip install --no-cache-dir -r requirements-api.txt \
- && pip install --no-cache-dir xformers triton
+ && pip install --no-cache-dir triton \
+ && pip install --no-cache-dir xformers --index-url https://download.pytorch.org/whl/cu128
 
 # =============================================================================
 # STEP 3 — Lock torch to 2.7.1 cu128 (FINAL ABI freeze)
