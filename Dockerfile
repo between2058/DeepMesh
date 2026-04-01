@@ -97,8 +97,7 @@ RUN pip install --no-cache-dir \
 # =============================================================================
 COPY requirements-api.txt .
 RUN pip install --no-cache-dir -r requirements-api.txt \
- && pip install --no-cache-dir triton \
- && pip install --no-cache-dir xformers --index-url https://download.pytorch.org/whl/cu128
+ && pip install --no-cache-dir triton
 
 # =============================================================================
 # STEP 3 — Lock torch to 2.7.1 cu128 (FINAL ABI freeze)
@@ -140,6 +139,15 @@ RUN rm -rf /tmp/flash-attention
 # Required by lit_gpt/fused_rotary_embedding.py.
 # =============================================================================
 RUN pip install --no-cache-dir --no-build-isolation --no-deps rotary-emb
+
+# =============================================================================
+# STEP 7 — xformers from source (compiled against locked torch + CUDA 12.8)
+#
+# Pre-built wheels link against CUDA 11. Build from source to get sm_120
+# support and correct CUDA 12.8 linkage.
+# =============================================================================
+RUN MAX_JOBS=${MAX_JOBS} pip install --no-cache-dir --no-build-isolation --no-deps \
+    -v xformers
 
 # =============================================================================
 # Sanity check — all CUDA extensions import cleanly
